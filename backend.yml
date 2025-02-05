@@ -1,0 +1,52 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend-api
+  namespace: three-tier
+  labels:
+    role: backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      role: backend
+  template:
+    metadata:
+      labels:
+        role: backend
+    spec:
+      containers:
+      - name: backend-api
+        image: perseverance01.azurecr.io/perseverance-project:VERSION
+        imagePullPolicy: Always
+        env:
+          - name: DB_CONN_STR
+            value: mongodb://mongodb-svc:27017/perseverance?directConnection=true
+          - name: DB_USERNAME
+            valueFrom:
+              secretKeyRef:
+                name: db-secret
+                key: username
+          - name: DB_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: db-secret
+                key: password
+        ports:
+        - containerPort: 3100
+      imagePullSecrets:
+      - name: acr-creds
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-service-api
+  namespace: three-tier
+spec:
+  type: NodePort
+  ports:
+  - port: 8080
+    targetPort: 3100
+    nodePort: 30008
+  selector:
+    role: backend

@@ -1,0 +1,79 @@
+pool:
+  name: 'rollout'
+  
+variables:
+  version: 'backend_$(Build.BuildId)'
+
+stages:
+- stage: CheckoutCode
+  displayName: 'Checkout Code'
+  jobs:
+  - job: checkout
+    displayName: 'Checkout Code'
+    steps:
+    - checkout: self
+
+- stage: BuildDockerImage
+  displayName: 'Build Docker Image'
+  dependsOn: CheckoutCode
+  jobs:
+  - job: build
+    displayName: 'Build Docker Image'
+    steps:
+    - task: Docker@2
+      displayName: 'Build Docker Image'
+      inputs:
+        containerRegistry: 'perseverance01'
+        repository: 'perseverance-project'
+        command: 'build'
+        Dockerfile: '**/Dockerfile'
+        tags: |
+          backend_$(Build.BuildId)
+      name: buildImage
+
+- stage: PushDockerImage
+  displayName: 'Push Docker Image'
+  dependsOn: BuildDockerImage
+  jobs:
+  - job: push
+    displayName: 'Push Docker Image to ACR'
+    steps:
+    - task: Docker@2
+      displayName: 'Push Docker Image' 
+      inputs:
+        containerRegistry: 'perseverance01'
+        repository: 'perseverance-project'
+        command: 'push'
+        tags: |
+          $(version)
+- stage: CleanupDockerImages
+  displayName: 'Clean Up Docker Images'
+  dependsOn: PushDockerImage
+  jobs:
+  - job: cleanup
+    displayName: 'Clean Up Docker Images'
+    steps:
+    - script: |
+        docker rmi -f $(docker images -aq)
+      displayName: 'Remove all Docker images'
+
+- stage: ModifyAndPublishYaml
+  displayName: 'Modify and Publish Kubernetes Manifest'
+  dependsOn: CleanupDockerImages
+  jobs:
+  - job: modifyAndPublish
+    displayName: 'Modify Kubernetes Manifest and Publish'
+    steps:
+    - script: |
+        echo "Replacing VERSION with $(version) in backend.yml"
+        sed -i "s|VERSION|$(version)|g" backend.yml
+        cat backend.yml
+        cp backend.yml $(Build.ArtifactStagingDirectory)/
+      displayName: 'Modify Kubernetes Manifest'
+
+    - task: PublishBuildArtifacts@1
+      displayName: 'Publish Modified Kubernetes Manifest'
+      inputs:
+        PathtoPublish: '$(Build.ArtifactStagingDirectory)'
+        ArtifactName: 'k8s-manifest'
+        publishLocation: 'Container'
